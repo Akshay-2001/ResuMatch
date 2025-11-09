@@ -1,42 +1,98 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
+/* -------------------------------
+   Global Layout & Typography
+-------------------------------- */
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #f6f7fb; /* soft neutral background */
+  font-family: 'Inter', sans-serif;
+}
+
+/* Smooth text rendering */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling (optional but looks premium) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #c8c8c8 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #c8c8c8;
+  border-radius: 10px;
+}
+
+/* -------------------------------
+   Resume Preview Styling Boost
+-------------------------------- */
+
+.resume-preview {
+  background: white;
   padding: 2rem;
-  text-align: center;
+  border-radius: 10px;
+  box-shadow:
+    0 1px 3px rgba(0,0,0,0.05),
+    0 8px 24px rgba(0,0,0,0.06);
+  max-width: 850px;
+  margin: auto;
+  line-height: 1.55;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.resume-preview h1, 
+.resume-preview h2, 
+.resume-preview h3 {
+  font-weight: 600;
+  margin-bottom: 4px;
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.resume-preview ul {
+  margin-top: 6px;
+  margin-bottom: 12px;
+  padding-left: 1.15rem;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+.resume-preview li {
+  margin-bottom: 4px;
 }
 
-.card {
-  padding: 2em;
+/* -------------------------------
+   Sidebar Navigation Visuals
+-------------------------------- */
+
+.sidebar-nav button {
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: 6px;
+  transition: 0.2s ease;
+  font-size: 15px;
+  font-weight: 500;
 }
 
-.read-the-docs {
-  color: #888;
+.sidebar-nav button:hover {
+  background: #e5e7eb;
+}
+
+.sidebar-nav button.active {
+  background: #111;
+  color: white;
+}
+
+/* Ensures cards look consistently modern */
+.card-section {
+  background: white;
+  border-radius: 10px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border: 1px solid #e5e7eb;
+  margin-bottom: 1.5rem;
 }

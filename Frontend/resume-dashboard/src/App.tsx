@@ -46,12 +46,18 @@ type ProjectItem = {
   description?: string;
 };
 
+type SkillItem = {
+  skill_name: string;
+  category: string;
+};
+
 // This is the shape of the data in the React forms
 type MasterResumeInput = {
   personal: PersonalDetails;
   education: EducationItem[];
   experience: ExperienceItem[];
   projects: ProjectItem[];
+  skills: SkillItem[];
 };
 
 /* ----------------- Backend API Types ----------------- */
@@ -83,6 +89,12 @@ type BE_Project = {
   description_bullets?: string[] | null;
 };
 
+type BE_Skill = {
+  skill_id: string;
+  skill_name: string;
+  category?: string | null;
+};
+
 // GET /resumes/lookup/full
 type UserResume = {
   _id: string; // <-- FIX: Changed from 'id' to '_id' to match your backend response
@@ -97,7 +109,7 @@ type UserResume = {
   work_experience: BE_WorkExperience[];
   projects: BE_Project[];
   education: BE_Education[];
-  skills: any[]; // 'skills' model not fully defined, but we don't use it
+  skills: BE_Skill[];
 };
 
 // POST /resumes/:_id/rank-items (Response)
@@ -140,6 +152,8 @@ type EducationFieldErrors = { institution?: string; degree?: string; start?: str
 type EducationErrors = EducationFieldErrors[];
 type ExperienceFieldErrors = { company?: string; role?: string; start?: string; end?: string; description?: string; achievements?: string };
 type ExperienceErrors = ExperienceFieldErrors[];
+type SkillFieldErrors = { skill_name?: string; category?: string };
+type SkillErrors = SkillFieldErrors[];
 
 function validatePersonal(p: PersonalDetails): PersonalErrors {
   const e: PersonalErrors = {};
@@ -198,6 +212,16 @@ function validateExperience(list: ExperienceItem[]): ExperienceErrors {
   });
 }
 
+function validateSkills(list: SkillItem[]): SkillErrors {
+  return list.map((sk) => {
+    const e: SkillFieldErrors = {};
+    if (!sk.skill_name.trim()) e.skill_name = "Skill name is required.";
+    else if (sk.skill_name.length > MAX.textShort) e.skill_name = `Max ${MAX.textShort} characters.`;
+    if (sk.category && sk.category.length > MAX.textShort) e.category = `Max ${MAX.textShort} characters.`;
+    return e;
+  });
+}
+
 function isEmptyErrors(obj: Record<string, string | undefined>) {
   return Object.values(obj).every((v) => !v);
 }
@@ -207,7 +231,7 @@ const listValid = (listErrs: Array<Record<string, string | undefined>>) => listE
 // This helper loads a script from a CDN and resolves when it's ready.
 const loadedScripts: Record<string, Promise<void>> = {};
 function loadScript(src: string): Promise<void> {
-  if (loadedScripts[src]) {
+  if (src in loadedScripts) {
     return loadedScripts[src];
   }
   loadedScripts[src] = new Promise((resolve, reject) => {
@@ -223,31 +247,73 @@ function loadScript(src: string): Promise<void> {
 /* ------------------------ PDF Export Helper --------------------- */
 async function exportNodeToPdf(node: HTMLElement, filename = "resume.pdf") {
   try {
+    console.log("Starting PDF export...");
+    
     // FIX: Load libraries from CDN at runtime
+    console.log("Loading PDF libraries...");
     await Promise.all([
       loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"),
       loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js")
     ]);
+    console.log("PDF libraries loaded successfully");
 
     // Access the libraries from the window object
     const html2canvas = (window as any).html2canvas;
-    const jsPDF = (window as any).jspdf.jsPDF;
+    const jsPDF = (window as any).jspdf?.jsPDF;
 
     if (!html2canvas || !jsPDF) {
       console.error("Failed to load PDF generation libraries.");
+      alert("Failed to load PDF generation libraries. Please check your internet connection and try again.");
       return;
     }
 
-    const canvas = await html2canvas(node, { scale: 2, useCORS: true });
+    console.log("Creating temporary sanitized node for PDF...");
+    // Create a clean, isolated copy of the node without modern CSS
+    const tempContainer = document.createElement('div');
+    tempContainer.style.position = 'absolute';
+    tempContainer.style.left = '-9999px';
+    tempContainer.style.top = '0';
+    tempContainer.style.width = node.offsetWidth + 'px';
+    tempContainer.style.backgroundColor = '#ffffff';
+    tempContainer.style.padding = '20px';
+    tempContainer.style.fontFamily = 'Arial, sans-serif';
+    tempContainer.style.fontSize = '12pt';
+    tempContainer.style.lineHeight = '1.5';
+    tempContainer.style.color = '#000000';
+    
+    // Clone the content
+    tempContainer.innerHTML = node.innerHTML;
+    document.body.appendChild(tempContainer);
+
+    console.log("Converting HTML to canvas...");
+    const canvas = await html2canvas(tempContainer, { 
+      scale: 2, 
+      useCORS: true, 
+      logging: false,
+      backgroundColor: '#ffffff',
+      windowWidth: tempContainer.scrollWidth,
+      windowHeight: tempContainer.scrollHeight
+    });
+    
+    // Remove temporary container
+    document.body.removeChild(tempContainer);
+    
+    console.log("Canvas created, converting to image...");
     const imgData = canvas.toDataURL("image/png");
+    console.log("Creating PDF...");
+    
     const pdf = new jsPDF({ unit: "pt", format: "a4" });
     const pageWidth = 595.28;
     const imgWidth = pageWidth - 64;
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    
     pdf.addImage(imgData, "PNG", 32, 32, imgWidth, imgHeight);
+    console.log("Saving PDF:", filename);
     pdf.save(filename);
+    console.log("PDF saved successfully!");
   } catch (error) {
     console.error("Error generating PDF:", error);
+    alert("Failed to generate PDF. Error: " + (error as Error).message);
   }
 }
 
@@ -332,6 +398,32 @@ const Section = ({ title, children, right }: { title: string; children: React.Re
   </section>
 );
 
+const StepIndicator = ({ steps, currentStep }: { steps: string[]; currentStep: number }) => (
+  <div className="bg-white rounded-xl shadow-sm border p-5 mb-6">
+    <div className="flex items-center justify-between">
+      {steps.map((step, idx) => (
+        <React.Fragment key={idx}>
+          <div className="flex flex-col items-center flex-1">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${
+              idx < currentStep ? "bg-green-500 text-white" :
+              idx === currentStep ? "bg-black text-white" :
+              "bg-gray-200 text-gray-600"
+            }`}>
+              {idx < currentStep ? "✓" : idx + 1}
+            </div>
+            <div className={`mt-2 text-xs text-center ${idx === currentStep ? "font-semibold" : "text-gray-600"}`}>
+              {step}
+            </div>
+          </div>
+          {idx < steps.length - 1 && (
+            <div className={`flex-1 h-0.5 -mt-8 ${idx < currentStep ? "bg-green-500" : "bg-gray-200"}`} />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  </div>
+);
+
 /* ------------ Month + Year dropdown (fixed version) ------------- */
 const MONTHS = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
 const years = (() => {
@@ -408,6 +500,12 @@ const MonthYearPicker = ({
 /* ------------------------------ App ----------------------------- */
 const App: React.FC = () => {
   const [tab, setTab] = useState<"master" | "tailored">("master");
+  
+  // Multi-step form state
+  const [currentStep, setCurrentStep] = useState(0);
+  const [showPreviewPage, setShowPreviewPage] = useState(false); // Show preview page after submit
+  const [downloadingPdf, setDownloadingPdf] = useState(false); // PDF download state
+  const steps = ["Personal Details", "Education", "Experience", "Skills", "Projects", "Review & Submit"];
 
   // Personal
   const [personal, setPersonal] = useState<PersonalDetails>({
@@ -432,11 +530,16 @@ const App: React.FC = () => {
     { company: "", role: "", start: "", end: "", description: "", achievements: "" },
   ]);
   const [projects, setProjects] = useState<ProjectItem[]>([{ title: "", description: "" }]);
+  const [skills, setSkills] = useState<SkillItem[]>([{ skill_name: "", category: "" }]);
 
   // Errors & touched arrays
   const [projectErrors, setProjectErrors] = useState<ProjectErrors>([{}]);
   const [projectTouched, setProjectTouched] = useState<{ title: boolean; description: boolean }[]>([
     { title: false, description: false },
+  ]);
+  const [skillErrors, setSkillErrors] = useState<SkillErrors>([{}]);
+  const [skillTouched, setSkillTouched] = useState<{ skill_name: boolean; category: boolean }[]>([
+    { skill_name: false, category: false },
   ]);
   const [eduErrors, setEduErrors] = useState<EducationErrors>([{} as EducationFieldErrors]);
   const [eduTouched, setEduTouched] = useState<
@@ -476,8 +579,8 @@ const App: React.FC = () => {
 
   // Keep payload in sync
   const masterPayload: MasterResumeInput = useMemo(
-    () => ({ personal, education, experience, projects }),
-    [personal, education, experience, projects]
+    () => ({ personal, education, experience, projects, skills }),
+    [personal, education, experience, projects, skills]
   );
 
   // Validate on changes
@@ -491,6 +594,15 @@ const App: React.FC = () => {
       return next;
     });
   }, [projects]);
+  React.useEffect(() => {
+    setSkillErrors(validateSkills(skills));
+    setSkillTouched((prev) => {
+      const next = [...prev];
+      while (next.length < skills.length) next.push({ skill_name: false, category: false });
+      while (next.length > skills.length) next.pop();
+      return next;
+    });
+  }, [skills]);
   React.useEffect(() => {
     setEduErrors(validateEducation(education));
     setEduTouched((prev) => {
@@ -522,24 +634,35 @@ const App: React.FC = () => {
   const addEducation = () => setEducation([...education, { institution: "", degree: "", start: "", end: "", details: "" }]);
   const addExperience = () => setExperience([...experience, { company: "", role: "", start: "", end: "", description: "", achievements: "" }]);
   const addProject = () => setProjects([...projects, { title: "", description: "" }]);
+  const addSkill = () => setSkills([...skills, { skill_name: "", category: "" }]);
 
   // Overall validity
   const personalValid = isEmptyErrors(personalErrors);
   const projectsValid = listValid(projectErrors);
   const eduValid = listValid(eduErrors);
   const expValid = listValid(expErrors);
-  const isFormValid = personalValid && projectsValid && eduValid && expValid;
+  const skillsValid = listValid(skillErrors);
+  const isFormValid = personalValid && projectsValid && eduValid && expValid && skillsValid;
 
   /* ---------------- 1) POST /resumes/ (Submit) ---------------------- */
   const handleSubmitAll = async () => {
+    console.log("Submit button clicked!");
     setSubmitAttempted(true);
     const pErrs = validatePersonal(personal);
     const prErrs = validateProjects(projects);
     const edErrs = validateEducation(education);
     const exErrs = validateExperience(experience);
-    setPersonalErrors(pErrs); setProjectErrors(prErrs); setEduErrors(edErrs); setExpErrors(exErrs);
-    if (!isEmptyErrors(pErrs) || !listValid(prErrs) || !listValid(edErrs) || !listValid(exErrs)) return;
+    const skErrs = validateSkills(skills);
+    setPersonalErrors(pErrs); setProjectErrors(prErrs); setEduErrors(edErrs); setExpErrors(exErrs); setSkillErrors(skErrs);
+    
+    // Check for validation errors
+    if (!isEmptyErrors(pErrs) || !listValid(prErrs) || !listValid(edErrs) || !listValid(exErrs) || !listValid(skErrs)) {
+      console.log("Validation errors:", { pErrs, prErrs, edErrs, exErrs, skErrs });
+      setErrorMsg("Please fix all validation errors before submitting.");
+      return;
+    }
 
+    console.log("Submitting payload:", masterPayload);
     try {
       setErrorMsg(null);
       setPosting(true);
@@ -550,10 +673,13 @@ const App: React.FC = () => {
       setLookedUpId(null);
       setMasterResumeData(null);
 
-      await api.post("/resumes/", masterPayload, { headers: { "Content-Type": "application/json" } });
+      const response = await api.post("/resumes/", masterPayload, { headers: { "Content-Type": "application/json" } });
+      console.log("Submit response:", response);
       setCanPreview(true); // allow master preview step
     } catch (e: any) {
-      setErrorMsg(e?.response?.data?.detail || "Failed to submit resume data.");
+      console.error("Submit error:", e);
+      const errorDetail = e?.response?.data?.detail || e?.message || "Failed to submit resume data.";
+      setErrorMsg(errorDetail);
     } finally {
       setPosting(false);
     }
@@ -590,6 +716,9 @@ const App: React.FC = () => {
       // --- FIXED: Transform data and render the preview ---
       const feData = transformUserResumeToInput(data);
       setMasterPreviewHTML(fallbackMasterHtml(feData));
+      
+      // Show preview page
+      setShowPreviewPage(true);
 
     } catch (e: any) {
       setErrorMsg(e?.response?.data?.detail || "Failed to look up master resume.");
@@ -648,6 +777,47 @@ const App: React.FC = () => {
   const showEdu = (idx: number, field: keyof EducationFieldErrors) => submitAttempted || eduTouched[idx]?.[field as keyof typeof eduTouched[number]];
   const showExp = (idx: number, field: keyof ExperienceFieldErrors) => submitAttempted || expTouched[idx]?.[field as keyof typeof expTouched[number]];
 
+  // Multi-step navigation
+  const canProceedFromStep = (step: number): boolean => {
+    switch (step) {
+      case 0: return personalValid; // Personal Details
+      case 1: return eduValid;      // Education
+      case 2: return expValid;      // Experience
+      case 3: return skillsValid;   // Skills
+      case 4: return projectsValid; // Projects
+      case 5: return true;          // Review & Submit
+      default: return false;
+    }
+  };
+
+  const handleNext = () => {
+    // Mark all fields in current step as touched
+    if (currentStep === 0) {
+      setPersonalTouched({ name: true, email: true, phone: true, location: true, linkedin: true, github: true });
+    }
+    
+    if (canProceedFromStep(currentStep)) {
+      setCurrentStep((prev) => Math.min(prev + 1, steps.length - 1));
+    }
+  };
+
+  const handlePrevious = () => {
+    setCurrentStep((prev) => Math.max(prev - 1, 0));
+  };
+
+  const handleDownloadPdf = async (ref: React.RefObject<HTMLDivElement>, filename: string) => {
+    if (!ref.current) {
+      alert("No content to download");
+      return;
+    }
+    setDownloadingPdf(true);
+    try {
+      await exportNodeToPdf(ref.current, filename);
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 backdrop-blur bg-white/80 border-b">
@@ -662,11 +832,47 @@ const App: React.FC = () => {
 
       <main className="max-w-6xl mx-auto px-4 py-6">
         {tab === "master" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Left: Forms */}
+          showPreviewPage ? (
+            /* Preview Page View */
             <div>
-              {/* Personal */}
-              <Section title="Personal Details">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold">Master Resume Preview</h2>
+                <Button className="bg-white" onClick={() => { setShowPreviewPage(false); setTab("tailored"); }}>
+                  Generate Tailored Resume →
+                </Button>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border p-8">
+                <div ref={masterRef} className="max-h-[80vh] overflow-auto">
+                  {lookingUp ? (
+                    <p className="text-sm text-gray-500">Fetching master preview…</p>
+                  ) : masterPreviewHTML ? (
+                    <div dangerouslySetInnerHTML={{ __html: masterPreviewHTML }} />
+                  ) : (
+                    <p className="text-sm text-gray-500">No preview available.</p>
+                  )}
+                </div>
+                <div className="mt-6 flex gap-3">
+                  <Button
+                    className="bg-black text-white"
+                    onClick={() => handleDownloadPdf(masterRef, "Master_Resume.pdf")}
+                    disabled={!masterPreviewHTML || downloadingPdf}
+                  >
+                    {downloadingPdf ? "Generating PDF..." : "Download PDF"}
+                  </Button>
+                  <Button className="bg-white" onClick={() => setShowPreviewPage(false)}>
+                    Back to Form
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Multi-Step Form */
+            <div className="max-w-4xl mx-auto">
+              <StepIndicator steps={steps} currentStep={currentStep} />
+
+              {/* Step 0: Personal Details */}
+              {currentStep === 0 && (
+                <Section title="Personal Details">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Input
                     label="Name"
@@ -733,11 +939,13 @@ const App: React.FC = () => {
                   />
                 </div>
               </Section>
+              )}
 
-              {/* Education */}
-              <Section
+              {/* Step 1: Education */}
+              {currentStep === 1 && (
+                <Section
                 title="Education"
-                right={<Button className="bg-white" onClick={() => setEducation([...education, { institution: "", degree: "", start: "", end: "", details: "" }])}>+ Add</Button>}
+                right={<Button className="bg-white" onClick={addEducation}>+ Add</Button>}
               >
                 {education.map((ed, idx) => (
                   <div key={idx} className="mb-4 rounded-lg border p-3">
@@ -806,11 +1014,13 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </Section>
+              )}
 
-              {/* Experience */}
-              <Section
+              {/* Step 2: Experience */}
+              {currentStep === 2 && (
+                <Section
                 title="Experience"
-                right={<Button className="bg-white" onClick={() => setExperience([...experience, { company: "", role: "", start: "", end: "", description: "", achievements: "" }])}>+ Add</Button>}
+                right={<Button className="bg-white" onClick={addExperience}>+ Add</Button>}
               >
                 {experience.map((ex, idx) => (
                   <div key={idx} className="mb-4 rounded-lg border p-3">
@@ -893,9 +1103,53 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </Section>
+              )}
 
-              {/* Projects */}
-              <Section title="Projects" right={<Button className="bg-white" onClick={addProject}>+ Add</Button>}>
+              {/* Step 3: Skills */}
+              {currentStep === 3 && (
+                <Section title="Skills" right={<Button className="bg-white" onClick={addSkill}>+ Add</Button>}>
+                {skills.map((sk, idx) => (
+                  <div key={idx} className="mb-4 rounded-lg border p-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Input
+                        label="Skill Name"
+                        value={sk.skill_name}
+                        max={MAX.textShort}
+                        required
+                        placeholder="e.g., Python, React, AWS"
+                        error={skillErrors[idx]?.skill_name}
+                        touched={skillTouched[idx]?.skill_name}
+                        showError={submitAttempted || skillTouched[idx]?.skill_name}
+                        onBlur={() => setSkillTouched((t) => { const next = [...t]; if (!next[idx]) next[idx] = { skill_name: false, category: false }; next[idx].skill_name = true; return next; })}
+                        onChange={(v) => patch(setSkills, skills, idx, { ...sk, skill_name: v })}
+                      />
+                      <Input
+                        label="Category (optional)"
+                        value={sk.category}
+                        max={MAX.textShort}
+                        placeholder="e.g., Language, Framework, Tool"
+                        error={skillErrors[idx]?.category}
+                        touched={skillTouched[idx]?.category}
+                        showError={submitAttempted || skillTouched[idx]?.category}
+                        onBlur={() => setSkillTouched((t) => { const next = [...t]; if (!next[idx]) next[idx] = { skill_name: false, category: false }; next[idx].category = true; return next; })}
+                        onChange={(v) => patch(setSkills, skills, idx, { ...sk, category: v })}
+                      />
+                    </div>
+                    <div className="mt-2">
+                      <Button className="bg-white" onClick={() => {
+                        removeAt(setSkills, skills, idx);
+                        setSkillTouched((t) => t.filter((_, i) => i !== idx));
+                        setSkillErrors((e) => e.filter((_, i) => i !== idx));
+                      }}>Remove</Button>
+                    </div>
+                  </div>
+                ))}
+              </Section>
+              )}
+
+              {/* Step 4: Projects */}
+              {currentStep === 4 && (
+                <Section title="Projects" right={<Button className="bg-white" onClick={addProject}>+ Add</Button>}>
                 {projects.map((pr, idx) => (
                   <div key={idx} className="mb-4 rounded-lg border p-3">
                     <Input
@@ -931,61 +1185,101 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </Section>
+              )}
 
-              {/* Actions (your exact labels) */}
-              <div className="flex flex-wrap gap-3 items-center">
-                <Button
-                  className="bg-black text-white"
-                  onClick={handleSubmitAll}
-                  disabled={!isFormValid || posting}
-                >
-                  {posting ? "Submitting…" : "Submit"}
-                </Button>
+              {/* Step 5: Review & Submit */}
+              {currentStep === 5 && (
+                <Section title="Review & Submit">
+                  <div className="space-y-4">
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h3 className="font-semibold text-lg mb-3">Review Your Information</h3>
+                      <div className="space-y-2 text-sm">
+                        <div><span className="font-medium">Name:</span> {personal.name || "—"}</div>
+                        <div><span className="font-medium">Email:</span> {personal.email || "—"}</div>
+                        <div><span className="font-medium">Phone:</span> {personal.phone || "—"}</div>
+                        <div><span className="font-medium">Education:</span> {education.length} entry(ies)</div>
+                        <div><span className="font-medium">Experience:</span> {experience.length} entry(ies)</div>
+                        <div><span className="font-medium">Skills:</span> {skills.length} skill(s)</div>
+                        <div><span className="font-medium">Projects:</span> {projects.length} project(s)</div>
+                      </div>
+                    </div>
 
+                    {/* Form Validation Status */}
+                    {!isFormValid && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <p className="text-sm text-red-800 font-medium mb-2">⚠️ Please fix the following issues:</p>
+                        <ul className="text-sm text-red-700 space-y-1 list-disc list-inside">
+                          {!personalValid && <li>Personal Details has errors</li>}
+                          {!eduValid && <li>Education has errors</li>}
+                          {!expValid && <li>Experience has errors</li>}
+                          {!skillsValid && <li>Skills has errors</li>}
+                          {!projectsValid && <li>Projects has errors</li>}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-3">
+                      <Button
+                        className="bg-black text-white"
+                        onClick={handleSubmitAll}
+                        disabled={!isFormValid || posting}
+                      >
+                        {posting ? "Submitting…" : "Submit Resume"}
+                      </Button>
+
+                      <Button
+                        className="bg-blue-600 text-white"
+                        onClick={handlePreviewMaster}
+                        disabled={!canPreview || lookingUp}
+                      >
+                        {lookingUp ? "Loading…" : "Preview Resume"}
+                      </Button>
+                    </div>
+
+                    {errorMsg && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                        <p className="text-sm text-red-800 font-medium">❌ Error:</p>
+                        <p className="text-sm text-red-700 mt-1">{errorMsg}</p>
+                      </div>
+                    )}
+                    {canPreview && !lookedUpId && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                        <p className="text-sm text-green-800">✓ Data submitted successfully! Click "Preview Resume" to view.</p>
+                      </div>
+                    )}
+                  </div>
+                </Section>
+              )}
+
+              {/* Navigation Buttons */}
+              <div className="flex justify-between mt-6">
                 <Button
                   className="bg-white"
-                  onClick={handlePreviewMaster}
-                  disabled={!canPreview || lookingUp}
+                  onClick={handlePrevious}
+                  disabled={currentStep === 0}
                 >
-                  {lookingUp ? "Loading Preview…" : "Preview Master Resume"}
+                  ← Previous
                 </Button>
-
-                <Button
-                  className="bg-white"
-                  onClick={() => masterRef.current && exportNodeToPdf(masterRef.current, "Master_Resume.pdf")}
-                  disabled={!masterPreviewHTML}
-                >
-                  Download Master PDF
-                </Button>
+                
+                {currentStep < steps.length - 1 && (
+                  <Button
+                    className="bg-black text-white"
+                    onClick={handleNext}
+                    disabled={!canProceedFromStep(currentStep)}
+                  >
+                    Next →
+                  </Button>
+                )}
               </div>
 
-              {/* Inline step hints */}
-              <div className="mt-2 space-y-1 text-xs text-gray-500">
-                {!isFormValid && <div>Fill required fields to enable <b>Submit</b>.</div>}
-                {isFormValid && !canPreview && !posting && <div>Click <b>Submit</b> to send data.</div>}
-                {canPreview && !canGenerate && !lookingUp && <div>Click <b>Preview Master Resume</b> to fetch <code>_id</code>.</div>}
-                {lookedUpId && <div>Current resume <code>_id</code>: <code>{lookedUpId}</code></div>}
-                {errorMsg && <div className="text-red-600">{errorMsg}</div>}
-              </div>
-            </div>
-
-            {/* Right: Previews */}
-            <div className="space-y-6">
-              <Section title="Master Resume Preview">
-                <div ref={masterRef} className="bg-white border rounded-lg p-4 max-h-[80vh] overflow-auto">
-                  {posting || lookingUp ? (
-                    <p className="text-sm text-gray-500">
-                      {posting ? "Submitting data…" : "Fetching master preview…"}
-                    </p>
-                  ) : masterPreviewHTML ? (
-                    <div dangerouslySetInnerHTML={{ __html: masterPreviewHTML }} />
-                  ) : (
-                    <p className="text-sm text-gray-500">No master preview yet.</p>
-                  )}
+              {/* Validation hint */}
+              {!canProceedFromStep(currentStep) && currentStep < steps.length - 1 && (
+                <div className="text-sm text-red-600 text-center mt-2">
+                  Please fill all required fields to proceed.
                 </div>
-              </Section>
+              )}
             </div>
-          </div>
+          )
         ) : (
           /* ---------------------- Tailored Tab ---------------------- */
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1049,10 +1343,10 @@ const App: React.FC = () => {
                 <div className="mt-3">
                   <Button
                     className="bg-white"
-                    onClick={() => tailoredRef.current && exportNodeToPdf(tailoredRef.current, "Tailored_Resume.pdf")}
-                    disabled={!tailoredPreviewHTML}
+                    onClick={() => handleDownloadPdf(tailoredRef, "Tailored_Resume.pdf")}
+                    disabled={!tailoredPreviewHTML || downloadingPdf}
                   >
-                    Download Tailored PDF
+                    {downloadingPdf ? "Generating PDF..." : "Download Tailored PDF"}
                   </Button>
                 </div>
               </Section>
@@ -1077,7 +1371,7 @@ function escapeHtml(s: string) {
 }
 function sectionBlock(title: string, inner: string) {
   if (!inner || !inner.trim()) return "";
-  return `<div class="mt-4"><div class="font-semibold border-b pb-1" style="font-size: 14pt; color: black;">${escapeHtml(title)}</div><div class="mt-1 space-y-2">${inner}</div></div>`;
+  return `<div style="margin-top: 16px;"><div style="font-weight: 600; border-bottom: 1px solid #000; padding-bottom: 4px; font-size: 14pt; color: #000000;">${escapeHtml(title)}</div><div style="margin-top: 8px;">${inner}</div></div>`;
 }
 
 /**
@@ -1115,6 +1409,10 @@ function transformUserResumeToInput(be: UserResume): MasterResumeInput {
       // Combine bullets back into a single string for the form
       description: pr.description_bullets?.join('\n') || '',
     })),
+    skills: be.skills.map(sk => ({
+      skill_name: sk.skill_name || '',
+      category: sk.category || '',
+    })),
   };
 }
 
@@ -1124,34 +1422,53 @@ function transformUserResumeToInput(be: UserResume): MasterResumeInput {
  */
 function fallbackMasterHtml(data: MasterResumeInput): string {
   const p = data.personal;
+  
+  // Group skills by category
+  const groupedSkills = data.skills.reduce((acc, sk) => {
+    const cat = sk.category?.trim() || "Other";
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(sk.skill_name);
+    return acc;
+  }, {} as Record<string, string[]>);
+  
+  const skillsHtml = Object.keys(groupedSkills).length > 0 
+    ? Object.entries(groupedSkills).map(([cat, skillNames]) => `
+        <div>
+          <span class="font-medium" style="font-size: 11pt;">${escapeHtml(cat)}:</span>
+          <span style="font-size: 11pt;"> ${skillNames.map(escapeHtml).join(", ")}</span>
+        </div>
+      `).join("")
+    : "";
+  
   return `
-    <div class="font-sans text-[12pt] leading-relaxed">
-      <div class="text-center">
-        <div class="text-[18pt] font-semibold">${escapeHtml(p.name || "Your Name")}</div>
-        <div class="text-gray-600 text-[10pt]">${[p.email, p.phone, p.location].filter(Boolean).map(escapeHtml).join(" • ")}</div>
-        <div class="text-gray-600 text-[10pt]">${[p.linkedin, p.github].filter(Boolean).map(escapeHtml).join(" • ")}</div>
+    <div style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5;">
+      <div style="text-align: center;">
+        <div style="font-size: 18pt; font-weight: 600;">${escapeHtml(p.name || "Your Name")}</div>
+        <div style="color: #666666; font-size: 10pt;">${[p.email, p.phone, p.location].filter(Boolean).map(escapeHtml).join(" • ")}</div>
+        <div style="color: #666666; font-size: 10pt;">${[p.linkedin, p.github].filter(Boolean).map(escapeHtml).join(" • ")}</div>
       </div>
       ${sectionBlock("Education", data.education.map(ed => `
-        <div>
-          <div class="font-medium" style="font-size: 12pt;">${escapeHtml(ed.institution)} — ${escapeHtml(ed.degree)}</div>
-          <div class="text-gray-600 text-[10pt]">${escapeHtml(ed.start)} – ${escapeHtml(ed.end)}</div>
-          ${ed.details ? `<div class="mt-1" style="font-size: 11pt;">${escapeHtml(ed.details)}</div>` : ""}
+        <div style="margin-bottom: 12px;">
+          <div style="font-weight: 500; font-size: 12pt;">${escapeHtml(ed.institution)} — ${escapeHtml(ed.degree)}</div>
+          <div style="color: #666666; font-size: 10pt;">${escapeHtml(ed.start)} – ${escapeHtml(ed.end)}</div>
+          ${ed.details ? `<div style="margin-top: 4px; font-size: 11pt;">${escapeHtml(ed.details)}</div>` : ""}
         </div>
       `).join(""))}
       ${sectionBlock("Experience", data.experience.map(ex => `
-        <div>
-          <div class="font-medium" style="font-size: 12pt;">${escapeHtml(ex.role)} — ${escapeHtml(ex.company)}</div>
-          <div class="text-gray-600 text-[10pt]">${escapeHtml(ex.start)} – ${escapeHtml(ex.end)}</div>
-          ${ex.description ? `<ul class="list-disc list-outside pl-5 mt-1" style="font-size: 11pt;">${ex.description.split('\n').map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : ""}
-          ${ex.achievements ? `<div class="mt-1" style="font-size: 11pt;">${escapeHtml(ex.achievements)}</div>` : ""}
+        <div style="margin-bottom: 12px;">
+          <div style="font-weight: 500; font-size: 12pt;">${escapeHtml(ex.role)} — ${escapeHtml(ex.company)}</div>
+          <div style="color: #666666; font-size: 10pt;">${escapeHtml(ex.start)} – ${escapeHtml(ex.end)}</div>
+          ${ex.description ? `<ul style="list-style-type: disc; padding-left: 20px; margin-top: 4px; font-size: 11pt;">${ex.description.split('\n').map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : ""}
+          ${ex.achievements ? `<div style="margin-top: 4px; font-size: 11pt;">${escapeHtml(ex.achievements)}</div>` : ""}
         </div>
       `).join(""))}
       ${sectionBlock("Projects", data.projects.map(pr => `
-        <div>
-          <div class="font-medium" style="font-size: 12pt;">${escapeHtml(pr.title)}</div>
-          ${pr.description ? `<ul class="list-disc list-outside pl-5 mt-1" style="font-size: 11pt;">${pr.description.split('\n').map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : ""}
+        <div style="margin-bottom: 12px;">
+          <div style="font-weight: 500; font-size: 12pt;">${escapeHtml(pr.title)}</div>
+          ${pr.description ? `<ul style="list-style-type: disc; padding-left: 20px; margin-top: 4px; font-size: 11pt;">${pr.description.split('\n').map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : ""}
         </div>
       `).join(""))}
+      ${sectionBlock("Skills", skillsHtml)}
     </div>`;
 }
 
@@ -1163,34 +1480,49 @@ function fallbackMasterHtml(data: MasterResumeInput): string {
 function renderTailoredHtml(master: UserResume, ranked: RankItemsResponse): string {
   const p = master;
   const personalHtml = `
-    <div class="text-center">
-      <div class="text-[18pt] font-semibold">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
-      <div class="text-gray-600 text-[10pt]">${[p.email, p.phone].filter(Boolean).map(escapeHtml).join(" • ")}</div>
-      <div class="text-gray-600 text-[10pt]">${[p.linkedin_url, p.portfolio_url].filter(Boolean).map(escapeHtml).join(" • ")}</div>
+    <div style="text-align: center;">
+      <div style="font-size: 18pt; font-weight: 600;">${escapeHtml(p.first_name || '')} ${escapeHtml(p.last_name || '')}</div>
+      <div style="color: #666666; font-size: 10pt;">${[p.email, p.phone].filter(Boolean).map(v => escapeHtml(v || '')).join(" • ")}</div>
+      <div style="color: #666666; font-size: 10pt;">${[p.linkedin_url, p.portfolio_url].filter(Boolean).map(v => escapeHtml(v || '')).join(" • ")}</div>
     </div>`;
   
   const educationHtml = sectionBlock("Education", master.education.map(ed => `
-    <div>
-      <div class="font-medium" style="font-size: 12pt;">${escapeHtml(ed.institution_name)} — ${escapeHtml(ed.degree)}</div>
-      <div class="text-gray-600 text-[10pt]">${escapeHtml(ed.start_date || '')} – ${escapeHtml(ed.graduation_date || '')}</div>
-      ${ed.field_of_study ? `<div class="mt-1" style="font-size: 11pt;">${escapeHtml(ed.field_of_study)}</div>` : ""}
+    <div style="margin-bottom: 12px;">
+      <div style="font-weight: 500; font-size: 12pt;">${escapeHtml(ed.institution_name)} — ${escapeHtml(ed.degree)}</div>
+      <div style="color: #666666; font-size: 10pt;">${escapeHtml(ed.start_date || '')} – ${escapeHtml(ed.graduation_date || '')}</div>
+      ${ed.field_of_study ? `<div style="margin-top: 4px; font-size: 11pt;">${escapeHtml(ed.field_of_study)}</div>` : ""}
     </div>
   `).join(""));
 
   const workExHtml = sectionBlock("Relevant Experience", ranked.top_work_experiences.map(ex => `
-    <div>
-      <div class="font-medium" style="font-size: 12pt;">${escapeHtml(ex.job_title)} — ${escapeHtml(ex.company_name)}</div>
-      <div class="text-gray-600 text-[10pt]">${escapeHtml(ex.start_date || '')} – ${escapeHtml(ex.end_date || '')}</div>
-      ${ex.description_bullets ? `<ul class="list-disc list-outside pl-5 mt-1" style="font-size: 11pt;">${ex.description_bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : ""}
+    <div style="margin-bottom: 12px;">
+      <div style="font-weight: 500; font-size: 12pt;">${escapeHtml(ex.job_title)} — ${escapeHtml(ex.company_name)}</div>
+      <div style="color: #666666; font-size: 10pt;">${escapeHtml(ex.start_date || '')} – ${escapeHtml(ex.end_date || '')}</div>
+      ${ex.description_bullets ? `<ul style="list-style-type: disc; padding-left: 20px; margin-top: 4px; font-size: 11pt;">${ex.description_bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : ""}
     </div>
   `).join(""));
 
   const projectsHtml = sectionBlock("Relevant Projects", ranked.top_projects.map(pr => `
-    <div>
-      <div class="font-medium" style="font-size: 12pt;">${escapeHtml(pr.project_name)}</div>
-      ${pr.description_bullets ? `<ul class="list-disc list-outside pl-5 mt-1" style="font-size: 11pt;">${pr.description_bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : ""}
+    <div style="margin-bottom: 12px;">
+      <div style="font-weight: 500; font-size: 12pt;">${escapeHtml(pr.project_name)}</div>
+      ${pr.description_bullets ? `<ul style="list-style-type: disc; padding-left: 20px; margin-top: 4px; font-size: 11pt;">${pr.description_bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : ""}
     </div>
   `).join(""));
   
-  return `<div class="font-sans text-[12pt] leading-relaxed">${personalHtml}${workExHtml}${projectsHtml}${educationHtml}</div>`;
+  // Group skills by category
+  const groupedSkills = master.skills.reduce((acc, sk) => {
+    const cat = sk.category?.trim() || "Other";
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(sk.skill_name);
+    return acc;
+  }, {} as Record<string, string[]>);
+  
+  const skillsHtml = sectionBlock("Skills", Object.entries(groupedSkills).map(([cat, skillNames]) => `
+    <div>
+      <span style="font-weight: 500; font-size: 11pt;">${escapeHtml(cat)}:</span>
+      <span style="font-size: 11pt;"> ${skillNames.map(escapeHtml).join(", ")}</span>
+    </div>
+  `).join(""));
+  
+  return `<div style="font-family: Arial, sans-serif; font-size: 12pt; line-height: 1.5;">${personalHtml}${workExHtml}${projectsHtml}${educationHtml}${skillsHtml}</div>`;
 }

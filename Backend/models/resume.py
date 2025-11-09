@@ -113,6 +113,10 @@ class IngestProject(BaseModel):
     title: Optional[str] = None       # Now optional
     description: Optional[str] = None
 
+class IngestSkill(BaseModel):
+    skill_name: Optional[str] = None  # Skill name (e.g., "Python")
+    category: Optional[str] = None    # Category (e.g., "Language", "Framework")
+
 class IngestResume(BaseModel):
     """
     This is the main model that matches the new JSON payload.
@@ -122,3 +126,4 @@ class IngestResume(BaseModel):
     education: List[IngestEducation] = Field(default_factory=list)
     experience: List[IngestExperience] = Field(default_factory=list)
     projects: List[IngestProject] = Field(default_factory=list)
+    skills: List[IngestSkill] = Field(default_factory=list)

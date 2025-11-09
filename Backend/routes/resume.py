@@ -153,6 +153,19 @@ def create_resume(payload: IngestResume = Body(...)):
                 )
             )
 
+    transformed_skills = []
+    if payload.skills:
+        for skill in payload.skills:
+            if not skill.skill_name or not skill.skill_name.strip():
+                continue
+            transformed_skills.append(
+                Skill(
+                    skill_id=f"skill-{uuid.uuid4()}",
+                    skill_name=skill.skill_name.strip(),
+                    category=skill.category.strip() if skill.category else None
+                )
+            )
+
     resume_to_create = UserResumeCreate(
         user_id=f"user-{uuid.uuid4()}",
         email=personal.email,
@@ -164,7 +177,7 @@ def create_resume(payload: IngestResume = Body(...)):
         work_experience=transformed_work_ex,
         projects=transformed_projects,
         education=transformed_education,
-        skills=[]
+        skills=transformed_skills
     )
 
     # --- 2. Save to Database ---
