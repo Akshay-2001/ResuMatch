@@ -20,6 +20,7 @@ class Education(BaseModel):
     education_id: str = Field(..., example="uuid-4444-dddd")
     institution_name: str = Field(..., example="University at Buffalo")
     degree: str = Field(..., example="Master of Science")
+    major: Optional[str] = Field(None, example="Computer Science")
     field_of_study: Optional[str] = Field(None, example="Computer Science")
     graduation_date: Optional[str] = Field(None, example="2025-12-15 or Aug. 2024")
     start_date: Optional[str] = Field(None, example="Jul. 2022")
@@ -97,6 +98,7 @@ class IngestPersonal(BaseModel):
 class IngestEducation(BaseModel):
     institution: Optional[str] = None # Now optional
     degree: Optional[str] = None      # Now optional
+    major: Optional[str] = None       # Optional, displayed with degree
     start: Optional[str] = None
     end: Optional[str] = None
     details: Optional[str] = None
@@ -113,6 +115,10 @@ class IngestProject(BaseModel):
     title: Optional[str] = None       # Now optional
     description: Optional[str] = None
 
+class IngestSkill(BaseModel):
+    skill_name: Optional[str] = None  # Skill name (e.g., "Python")
+    category: Optional[str] = None    # Category (e.g., "Language", "Framework")
+
 class IngestResume(BaseModel):
     """
     This is the main model that matches the new JSON payload.
@@ -122,3 +128,4 @@ class IngestResume(BaseModel):
     education: List[IngestEducation] = Field(default_factory=list)
     experience: List[IngestExperience] = Field(default_factory=list)
     projects: List[IngestProject] = Field(default_factory=list)
+    skills: List[IngestSkill] = Field(default_factory=list)

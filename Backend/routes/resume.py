@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Body, Query
+from fastapi import APIRouter, HTTPException, status, Body, Query, Depends
 from pymongo.collection import Collection
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -21,6 +21,8 @@ from models.resume import (
 from db.database import get_resume_collection
 # --- NEW: Import our async summarizer ---
 from services.summarizer import summarize_item, MODEL_LOADED as DEEPSEEK_MODEL_LOADED
+# --- NEW: Import authentication dependency ---
+from routes.auth import get_current_user
 
 # --- Model Loading (Sentence Transformer) ---
 try:
@@ -67,13 +69,18 @@ class ExperienceAndProjectsResponse(BaseModel):
     status_code=status.HTTP_201_CREATED,
     summary="Create a new resume from the UI payload"
 )
-def create_resume(payload: IngestResume = Body(...)):
+def create_resume(
+    payload: IngestResume = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
     """
     Receives the JSON payload from the UI, transforms it into the
     internal UserResumeCreate model, and saves it to the database.
     
     This function is robust and will skip items that are missing
     necessary fields (e.g., an education item without an institution).
+    
+    Requires authentication. Resume will be associated with the authenticated user.
     """
     
     # --- 1. Transform IngestResume -> UserResumeCreate ---
@@ -89,13 +96,13 @@ def create_resume(payload: IngestResume = Body(...)):
     first_name = name_parts[0]
     last_name = name_parts[1] if len(name_parts) > 1 else None
 
-    # Check if resume with this email already exists
+    # Check if user already has a resume
     collection = get_resume_collection()
-    existing_resume = collection.find_one({"email": personal.email})
+    existing_resume = collection.find_one({"user_id": current_user["user_id"]})
     if existing_resume:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A resume with the email '{personal.email}' already exists. Use the PUT endpoint to update."
+            detail=f"You already have a resume. Use the PUT endpoint to update it."
         )
 
     transformed_education = []
@@ -108,6 +115,7 @@ def create_resume(payload: IngestResume = Body(...)):
                     education_id=f"edu-{uuid.uuid4()}",
                     institution_name=edu.institution,
                     degree=edu.degree,
+                    major=edu.major,
                     field_of_study=edu.details,
                     graduation_date=edu.end,
                     start_date=edu.start
@@ -153,8 +161,21 @@ def create_resume(payload: IngestResume = Body(...)):
                 )
             )
 
+    transformed_skills = []
+    if payload.skills:
+        for skill in payload.skills:
+            if not skill.skill_name or not skill.skill_name.strip():
+                continue
+            transformed_skills.append(
+                Skill(
+                    skill_id=f"skill-{uuid.uuid4()}",
+                    skill_name=skill.skill_name.strip(),
+                    category=skill.category.strip() if skill.category else None
+                )
+            )
+
     resume_to_create = UserResumeCreate(
-        user_id=f"user-{uuid.uuid4()}",
+        user_id=current_user["user_id"],  # Use authenticated user's ID
         email=personal.email,
         first_name=first_name,
         last_name=last_name,
@@ -164,7 +185,7 @@ def create_resume(payload: IngestResume = Body(...)):
         work_experience=transformed_work_ex,
         projects=transformed_projects,
         education=transformed_education,
-        skills=[]
+        skills=transformed_skills
     )
 
     # --- 2. Save to Database ---
@@ -189,28 +210,184 @@ def create_resume(payload: IngestResume = Body(...)):
         )
 
 # -----------------------------------------------------------------
+# --- Update Existing Resume (PUT) ---
+# -----------------------------------------------------------------
+@resume_router.put(
+    "/",
+    response_model=CreateSuccessResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update an existing resume"
+)
+def update_resume(
+    payload: IngestResume = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Updates the authenticated user's existing resume.
+    
+    Requires authentication. Only updates the resume for the logged-in user.
+    """
+    
+    # --- 1. Transform IngestResume -> UserResumeCreate ---
+    
+    if not payload.personal or not payload.personal.name or not payload.personal.email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="The 'personal' object with a valid 'name' and 'email' is required."
+        )
+    
+    personal = payload.personal
+    name_parts = personal.name.strip().split(' ', 1)
+    first_name = name_parts[0]
+    last_name = name_parts[1] if len(name_parts) > 1 else None
+
+    # Check if user has a resume to update
+    collection = get_resume_collection()
+    existing_resume = collection.find_one({"user_id": current_user["user_id"]})
+    if not existing_resume:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No resume found to update. Please create a resume first."
+        )
+
+    transformed_education = []
+    if payload.education:
+        for edu in payload.education:
+            if not edu.institution or not edu.degree:
+                continue
+            transformed_education.append(
+                Education(
+                    education_id=f"edu-{uuid.uuid4()}",
+                    institution_name=edu.institution,
+                    degree=edu.degree,
+                    major=edu.major,
+                    field_of_study=edu.details,
+                    graduation_date=edu.end,
+                    start_date=edu.start
+                )
+            )
+    
+    transformed_work_ex = []
+    if payload.experience:
+        for exp in payload.experience:
+            if not exp.company or not exp.role:
+                continue
+            bullets = []
+            if exp.description:
+                bullets.extend(exp.description.strip().split('\n'))
+            if exp.achievements:
+                bullets.extend(exp.achievements.strip().split('\n'))
+            transformed_work_ex.append(
+                WorkExperience(
+                    work_ex_id=f"work-{uuid.uuid4()}",
+                    job_title=exp.role,
+                    company_name=exp.company,
+                    location=None,
+                    start_date=exp.start,
+                    end_date=exp.end,
+                    description_bullets=bullets
+                )
+            )
+
+    transformed_projects = []
+    if payload.projects:
+        for proj in payload.projects:
+            if not proj.title:
+                continue
+            bullets = []
+            if proj.description:
+                bullets = proj.description.strip().split('\n')
+            transformed_projects.append(
+                Project(
+                    project_id=f"proj-{uuid.uuid4()}",
+                    project_name=proj.title,
+                    repository_url=None,
+                    description_bullets=bullets
+                )
+            )
+
+    transformed_skills = []
+    if payload.skills:
+        for skill in payload.skills:
+            if not skill.skill_name or not skill.skill_name.strip():
+                continue
+            transformed_skills.append(
+                Skill(
+                    skill_id=f"skill-{uuid.uuid4()}",
+                    skill_name=skill.skill_name.strip(),
+                    category=skill.category.strip() if skill.category else None
+                )
+            )
+
+    resume_to_update = UserResumeCreate(
+        user_id=current_user["user_id"],
+        email=personal.email,
+        first_name=first_name,
+        last_name=last_name,
+        phone=personal.phone,
+        linkedin_url=personal.linkedin,
+        portfolio_url=personal.github,
+        work_experience=transformed_work_ex,
+        projects=transformed_projects,
+        education=transformed_education,
+        skills=transformed_skills
+    )
+
+    # --- 2. Update in Database ---
+    resume_dict = resume_to_update.model_dump(mode='json') 
+    
+    try:
+        update_result = collection.update_one(
+            {"user_id": current_user["user_id"]},
+            {"$set": resume_dict}
+        )
+        
+        if not update_result.acknowledged:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update resume in database."
+            )
+        
+        # Return the existing document's ID
+        return {
+            "message": "Resume updated successfully",
+            "inserted_id": str(existing_resume["_id"])
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred: {e}"
+        )
+
+# -----------------------------------------------------------------
 # --- Get Full Resume by Email ---
 # -----------------------------------------------------------------
 @resume_router.get(
     "/lookup/full",
     response_model=UserResume,
     status_code=status.HTTP_200_OK,
-    summary="Get a single full resume by its email address"
+    summary="Get the authenticated user's full resume"
 )
-def get_full_resume_by_email(email: EmailStr = Query(..., example="student@buffalo.edu")):
+def get_full_resume_by_email(
+    email: EmailStr = Query(..., example="student@buffalo.edu"),
+    current_user: dict = Depends(get_current_user)
+):
     """
-    Finds a resume in the database using the email address
-    as a unique lookup key and returns the entire resume document.
+    Finds the authenticated user's resume in the database and returns
+    the entire resume document.
+    
+    Requires authentication. Only returns the resume for the logged-in user.
     """
     collection = get_resume_collection()
-    resume_doc = collection.find_one({"email": email})
+    # Query by user_id to ensure users only see their own resume
+    resume_doc = collection.find_one({"user_id": current_user["user_id"]})
     
     if resume_doc:
         return UserResume.model_validate(resume_doc)
     
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Resume with email {email} not found."
+        detail=f"Resume not found. Please create your resume first."
     )
 
 # -----------------------------------------------------------------
@@ -347,12 +524,15 @@ class RankResponse(BaseModel):
 )
 async def rank_and_summarize_resume_items( # <-- Changed to async def
     resume_id: str,
-    request: RankRequest = Body(...)
+    request: RankRequest = Body(...),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Ranks all work experience and projects against a job description,
     then sends the top 2 work-ex and top 3 projects to an AI
     to summarize their bullet points, and returns the final result.
+    
+    Requires authentication. Only works with the logged-in user's resume.
     """
     if not ST_MODEL_LOADED:
         raise HTTPException(
@@ -374,13 +554,20 @@ async def rank_and_summarize_resume_items( # <-- Changed to async def
             detail=f"'{resume_id}' is not a valid MongoDB ObjectId."
         )
 
-    projection = {"work_experience": 1, "projects": 1, "_id": 0}
+    projection = {"work_experience": 1, "projects": 1, "user_id": 1, "_id": 0}
     resume_data = collection.find_one({"_id": object_id_to_find}, projection)
     
     if not resume_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Resume with ID {resume_id} not found."
+        )
+    
+    # Verify resume belongs to the authenticated user
+    if resume_data.get("user_id") != current_user["user_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this resume."
         )
 
     items_to_rank = []

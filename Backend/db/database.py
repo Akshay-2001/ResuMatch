@@ -65,6 +65,11 @@ class DatabaseClient:
 # This instance will be shared across the application
 db_client = DatabaseClient()
 
-# Helper function to easily get the collection in your routes
+# Helper functions to easily access database and collections in your routes
+def get_database() -> Database:
+    """Get the database instance"""
+    return db_client.get_database()
+
 def get_resume_collection() -> Collection:
+    """Get the resumes collection"""
     return db_client.get_resume_collection()
