@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Body, Query
+from fastapi import APIRouter, HTTPException, status, Body, Query, Depends
 from pymongo.collection import Collection
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -21,6 +21,8 @@ from models.resume import (
 from db.database import get_resume_collection
 # --- NEW: Import our async summarizer ---
 from services.summarizer import summarize_item, MODEL_LOADED as DEEPSEEK_MODEL_LOADED
+# --- NEW: Import authentication dependency ---
+from routes.auth import get_current_user
 
 # --- Model Loading (Sentence Transformer) ---
 try:
@@ -67,13 +69,18 @@ class ExperienceAndProjectsResponse(BaseModel):
     status_code=status.HTTP_201_CREATED,
     summary="Create a new resume from the UI payload"
 )
-def create_resume(payload: IngestResume = Body(...)):
+def create_resume(
+    payload: IngestResume = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
     """
     Receives the JSON payload from the UI, transforms it into the
     internal UserResumeCreate model, and saves it to the database.
     
     This function is robust and will skip items that are missing
     necessary fields (e.g., an education item without an institution).
+    
+    Requires authentication. Resume will be associated with the authenticated user.
     """
     
     # --- 1. Transform IngestResume -> UserResumeCreate ---
@@ -89,13 +96,13 @@ def create_resume(payload: IngestResume = Body(...)):
     first_name = name_parts[0]
     last_name = name_parts[1] if len(name_parts) > 1 else None
 
-    # Check if resume with this email already exists
+    # Check if user already has a resume
     collection = get_resume_collection()
-    existing_resume = collection.find_one({"email": personal.email})
+    existing_resume = collection.find_one({"user_id": current_user["user_id"]})
     if existing_resume:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"A resume with the email '{personal.email}' already exists. Use the PUT endpoint to update."
+            detail=f"You already have a resume. Use the PUT endpoint to update it."
         )
 
     transformed_education = []
@@ -167,7 +174,7 @@ def create_resume(payload: IngestResume = Body(...)):
             )
 
     resume_to_create = UserResumeCreate(
-        user_id=f"user-{uuid.uuid4()}",
+        user_id=current_user["user_id"],  # Use authenticated user's ID
         email=personal.email,
         first_name=first_name,
         last_name=last_name,
@@ -208,22 +215,28 @@ def create_resume(payload: IngestResume = Body(...)):
     "/lookup/full",
     response_model=UserResume,
     status_code=status.HTTP_200_OK,
-    summary="Get a single full resume by its email address"
+    summary="Get the authenticated user's full resume"
 )
-def get_full_resume_by_email(email: EmailStr = Query(..., example="student@buffalo.edu")):
+def get_full_resume_by_email(
+    email: EmailStr = Query(..., example="student@buffalo.edu"),
+    current_user: dict = Depends(get_current_user)
+):
     """
-    Finds a resume in the database using the email address
-    as a unique lookup key and returns the entire resume document.
+    Finds the authenticated user's resume in the database and returns
+    the entire resume document.
+    
+    Requires authentication. Only returns the resume for the logged-in user.
     """
     collection = get_resume_collection()
-    resume_doc = collection.find_one({"email": email})
+    # Query by user_id to ensure users only see their own resume
+    resume_doc = collection.find_one({"user_id": current_user["user_id"]})
     
     if resume_doc:
         return UserResume.model_validate(resume_doc)
     
     raise HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
-        detail=f"Resume with email {email} not found."
+        detail=f"Resume not found. Please create your resume first."
     )
 
 # -----------------------------------------------------------------
@@ -360,12 +373,15 @@ class RankResponse(BaseModel):
 )
 async def rank_and_summarize_resume_items( # <-- Changed to async def
     resume_id: str,
-    request: RankRequest = Body(...)
+    request: RankRequest = Body(...),
+    current_user: dict = Depends(get_current_user)
 ):
     """
     Ranks all work experience and projects against a job description,
     then sends the top 2 work-ex and top 3 projects to an AI
     to summarize their bullet points, and returns the final result.
+    
+    Requires authentication. Only works with the logged-in user's resume.
     """
     if not ST_MODEL_LOADED:
         raise HTTPException(
@@ -387,13 +403,20 @@ async def rank_and_summarize_resume_items( # <-- Changed to async def
             detail=f"'{resume_id}' is not a valid MongoDB ObjectId."
         )
 
-    projection = {"work_experience": 1, "projects": 1, "_id": 0}
+    projection = {"work_experience": 1, "projects": 1, "user_id": 1, "_id": 0}
     resume_data = collection.find_one({"_id": object_id_to_find}, projection)
     
     if not resume_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Resume with ID {resume_id} not found."
+        )
+    
+    # Verify resume belongs to the authenticated user
+    if resume_data.get("user_id") != current_user["user_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this resume."
         )
 
     items_to_rank = []

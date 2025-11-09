@@ -14,6 +14,15 @@ import axios from "axios";
 const API_BASE = "http://localhost:8000";
 const api = axios.create({ baseURL: API_BASE });
 
+// Add interceptor to include auth token in all requests
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("auth_token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 /* ----------------- Frontend Form Types ----------------- */
 type PersonalDetails = {
   name: string;
@@ -497,8 +506,431 @@ const MonthYearPicker = ({
   );
 };
 
+/* ---------------------- Authentication Pages -------------------- */
+const LoginPage = ({ 
+  onLogin, 
+  onSwitchToSignup, 
+  onSwitchToForgot 
+}: { 
+  onLogin: (email: string, password: string) => Promise<void>;
+  onSwitchToSignup: () => void;
+  onSwitchToForgot: () => void;
+}) => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) {
+      setError("Please enter both email and password");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await onLogin(email, password);
+    } catch (err: any) {
+      setError(err.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
+          <p className="text-gray-600">Sign in to your ResuMatch account</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); setError(""); }}
+              placeholder="you@example.com"
+              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setError(""); }}
+              placeholder="••••••••"
+              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-sm text-red-800">{error}</p>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={onSwitchToForgot}
+            className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+          >
+            Forgot Password?
+          </button>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-md hover:shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {loading ? "Signing In..." : "Sign In"}
+          </button>
+        </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-sm text-gray-600">
+            Don't have an account?{" "}
+            <button
+              onClick={onSwitchToSignup}
+              className="text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              Sign Up
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const SignupPage = ({ 
+  onSignup, 
+  onSwitchToLogin 
+}: { 
+  onSignup: (name: string, email: string, password: string) => Promise<void>;
+  onSwitchToLogin: () => void;
+}) => {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name || !email || !password || !confirmPassword) {
+      setError("Please fill in all fields");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await onSignup(name, email, password);
+    } catch (err: any) {
+      setError(err.message || "Signup failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Create Account</h1>
+          <p className="text-gray-600">Join ResuMatch to build your perfect resume</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Full Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => { setName(e.target.value); setError(""); }}
+              placeholder="John Doe"
+              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => { setEmail(e.target.value); setError(""); }}
+              placeholder="you@example.com"
+              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setError(""); }}
+              placeholder="••••••••"
+              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
+              placeholder="••••••••"
+              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-sm text-red-800">{error}</p>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-md hover:shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {loading ? "Creating Account..." : "Create Account"}
+          </button>
+        </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-sm text-gray-600">
+            Already have an account?{" "}
+            <button
+              onClick={onSwitchToLogin}
+              className="text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              Sign In
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ForgotPasswordPage = ({ 
+  onReset, 
+  onBack 
+}: { 
+  onReset: (email: string) => void;
+  onBack: () => void;
+}) => {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+    onReset(email);
+    setSent(true);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Reset Password</h1>
+          <p className="text-gray-600">
+            {sent ? "Check your email for reset instructions" : "Enter your email to receive reset instructions"}
+          </p>
+        </div>
+
+        {!sent ? (
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-indigo-600 text-white py-3 rounded-lg font-semibold hover:bg-indigo-700 transition shadow-md hover:shadow-lg"
+            >
+              Send Reset Link
+            </button>
+          </form>
+        ) : (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+            <p className="text-sm text-green-800">
+              Reset instructions have been sent to <strong>{email}</strong>
+            </p>
+          </div>
+        )}
+
+        <div className="mt-6 text-center">
+          <button
+            onClick={onBack}
+            className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+          >
+            ← Back to Sign In
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const DashboardLanding = ({ 
+  user, 
+  onSelectMaster, 
+  onSelectTailored,
+  onLogout 
+}: { 
+  user: { name: string; email: string };
+  onSelectMaster: () => void;
+  onSelectTailored: () => void;
+  onLogout: () => void;
+}) => {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white border-b shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">ResuMatch Dashboard</h1>
+            <p className="text-sm text-gray-600">Welcome back, {user.name}!</p>
+          </div>
+          <button
+            onClick={onLogout}
+            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+          >
+            Sign Out
+          </button>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-12">
+        <div className="text-center mb-12">
+          <h2 className="text-4xl font-bold text-gray-900 mb-4">Choose Your Resume Builder</h2>
+          <p className="text-lg text-gray-600">Create a comprehensive master resume or tailor it for a specific job</p>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+          {/* Master Resume Card */}
+          <div
+            onClick={onSelectMaster}
+            className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all p-8 cursor-pointer border-2 border-transparent hover:border-indigo-500 group"
+          >
+            <div className="flex items-center justify-center w-16 h-16 bg-indigo-100 rounded-xl mb-6 group-hover:bg-indigo-500 transition">
+              <svg className="w-8 h-8 text-indigo-600 group-hover:text-white transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-3">Master Resume</h3>
+            <p className="text-gray-600 mb-4">
+              Build your comprehensive master resume with all your skills, experiences, education, and projects.
+            </p>
+            <ul className="space-y-2 text-sm text-gray-600 mb-6">
+              <li className="flex items-center">
+                <svg className="w-5 h-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Multi-step form wizard
+              </li>
+              <li className="flex items-center">
+                <svg className="w-5 h-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Save all your information
+              </li>
+              <li className="flex items-center">
+                <svg className="w-5 h-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Download as PDF
+              </li>
+            </ul>
+            <div className="text-indigo-600 font-semibold group-hover:text-indigo-700 flex items-center">
+              Get Started
+              <svg className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Tailored Resume Card */}
+          <div
+            onClick={onSelectTailored}
+            className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all p-8 cursor-pointer border-2 border-transparent hover:border-purple-500 group"
+          >
+            <div className="flex items-center justify-center w-16 h-16 bg-purple-100 rounded-xl mb-6 group-hover:bg-purple-500 transition">
+              <svg className="w-8 h-8 text-purple-600 group-hover:text-white transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-3">Tailored Resume</h3>
+            <p className="text-gray-600 mb-4">
+              Generate an AI-optimized resume tailored to a specific job description using your master resume.
+            </p>
+            <ul className="space-y-2 text-sm text-gray-600 mb-6">
+              <li className="flex items-center">
+                <svg className="w-5 h-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                AI-powered matching
+              </li>
+              <li className="flex items-center">
+                <svg className="w-5 h-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Job-specific optimization
+              </li>
+              <li className="flex items-center">
+                <svg className="w-5 h-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Instant PDF export
+              </li>
+            </ul>
+            <div className="text-purple-600 font-semibold group-hover:text-purple-700 flex items-center">
+              Get Started
+              <svg className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+};
+
 /* ------------------------------ App ----------------------------- */
 const App: React.FC = () => {
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ email: string; name: string } | null>(null);
+  const [authView, setAuthView] = useState<"login" | "signup" | "forgot">("login");
+  const [view, setView] = useState<"dashboard" | "master" | "tailored">("dashboard");
+  
   const [tab, setTab] = useState<"master" | "tailored">("master");
   
   // Multi-step form state
@@ -818,14 +1250,152 @@ const App: React.FC = () => {
     }
   };
 
+  // Authentication handlers
+  const handleLogin = async (email: string, password: string) => {
+    try {
+      const response = await api.post("/auth/login", { email, password });
+      const { access_token } = response.data;
+      
+      // Store token in localStorage
+      localStorage.setItem("auth_token", access_token);
+      
+      // Get user info
+      const userResponse = await api.get("/auth/me", {
+        headers: { Authorization: `Bearer ${access_token}` }
+      });
+      
+      setCurrentUser({ email: userResponse.data.email, name: userResponse.data.name });
+      setIsAuthenticated(true);
+      setView("dashboard");
+    } catch (error: any) {
+      console.error("Login error:", error);
+      throw new Error(error.response?.data?.detail || "Login failed");
+    }
+  };
+
+  const handleSignup = async (name: string, email: string, password: string) => {
+    try {
+      const response = await api.post("/auth/signup", { name, email, password });
+      const { access_token } = response.data;
+      
+      // Store token in localStorage
+      localStorage.setItem("auth_token", access_token);
+      
+      // Get user info
+      const userResponse = await api.get("/auth/me", {
+        headers: { Authorization: `Bearer ${access_token}` }
+      });
+      
+      setCurrentUser({ email: userResponse.data.email, name: userResponse.data.name });
+      setIsAuthenticated(true);
+      setView("dashboard");
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      throw new Error(error.response?.data?.detail || "Signup failed");
+    }
+  };
+
+  const handleForgotPassword = (email: string) => {
+    // TODO: Implement password reset endpoint in backend
+    console.log("Password reset requested for:", email);
+    alert("Password reset functionality will be implemented soon!");
+  };
+
+  const handleLogout = () => {
+    // Remove token from localStorage
+    localStorage.removeItem("auth_token");
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    setView("dashboard");
+    setAuthView("login");
+  };
+
+  // Check for existing auth token on mount
+  React.useEffect(() => {
+    const token = localStorage.getItem("auth_token");
+    if (token) {
+      // Verify token and get user info
+      api.get("/auth/me", {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      .then(response => {
+        setCurrentUser({ email: response.data.email, name: response.data.name });
+        setIsAuthenticated(true);
+      })
+      .catch(() => {
+        // Token is invalid, remove it
+        localStorage.removeItem("auth_token");
+      });
+    }
+  }, []);
+
+  // Show authentication pages if not logged in
+  if (!isAuthenticated) {
+    if (authView === "login") {
+      return (
+        <LoginPage
+          onLogin={handleLogin}
+          onSwitchToSignup={() => setAuthView("signup")}
+          onSwitchToForgot={() => setAuthView("forgot")}
+        />
+      );
+    }
+    if (authView === "signup") {
+      return (
+        <SignupPage
+          onSignup={handleSignup}
+          onSwitchToLogin={() => setAuthView("login")}
+        />
+      );
+    }
+    if (authView === "forgot") {
+      return (
+        <ForgotPasswordPage
+          onReset={handleForgotPassword}
+          onBack={() => setAuthView("login")}
+        />
+      );
+    }
+  }
+
+  // Show dashboard if authenticated and no specific view selected
+  if (isAuthenticated && view === "dashboard" && currentUser) {
+    return (
+      <DashboardLanding
+        user={currentUser}
+        onSelectMaster={() => { setView("master"); setTab("master"); }}
+        onSelectTailored={() => { setView("tailored"); setTab("tailored"); }}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  // Show the resume builder (existing functionality)
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 backdrop-blur bg-white/80 border-b">
         <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
-          <h1 className="text-xl font-semibold">Resume Builder Dashboard</h1>
-          <nav className="space-x-2">
-            <Button onClick={() => setTab("master")} className={tab === "master" ? "bg-black text-white" : "bg-white"}>Master</Button>
-            <Button onClick={() => setTab("tailored")} className={tab === "tailored" ? "bg-black text-white" : "bg-white"}>Tailored</Button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setView("dashboard")}
+              className="text-gray-600 hover:text-gray-900 transition"
+              title="Back to Dashboard"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+            </button>
+            <h1 className="text-xl font-semibold">Resume Builder Dashboard</h1>
+          </div>
+          <nav className="flex items-center space-x-2">
+            <Button onClick={() => { setTab("master"); setView("master"); }} className={tab === "master" ? "bg-black text-white" : "bg-white"}>Master</Button>
+            <Button onClick={() => { setTab("tailored"); setView("tailored"); }} className={tab === "tailored" ? "bg-black text-white" : "bg-white"}>Tailored</Button>
+            <button
+              onClick={handleLogout}
+              className="ml-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 border border-gray-300 rounded-md hover:bg-gray-50 transition"
+            >
+              Sign Out
+            </button>
           </nav>
         </div>
       </header>

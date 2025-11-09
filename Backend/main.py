@@ -2,6 +2,7 @@ from fastapi import FastAPI
 # 1. Import the CORSMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from routes.resume import resume_router
+from routes.auth import auth_router
 import uvicorn
 import os
 
@@ -29,6 +30,9 @@ app.add_middleware(
     allow_headers=["*"],    # Allow all headers
 )
 
+
+# Include authentication routes
+app.include_router(auth_router)
 
 # Include your resume routes
 app.include_router(resume_router)
